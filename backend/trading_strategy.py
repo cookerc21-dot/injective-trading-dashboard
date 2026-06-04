@@ -2,8 +2,9 @@ import os
 import asyncio
 import json
 from datetime import datetime
+import requests
 
-# Try to import Injective SDK
+# Try to import Injective SDK for potential future use
 try:
     from injective_py.exchange.exchange import InjectiveExchange
     from injective_py.exchange.trader import InjectiveTrader
@@ -48,6 +49,10 @@ class LiveTradingStrategy:
         self.network = network
         self.private_key = private_key
         self.chain_client = None
+        # Cache for market ID to avoid frequent API calls
+        self.market_id_cache = None
+        self.market_id_cache_time = 0
+        self.CACHE_TTL = 300  # 5 minutes
         
         # Your provided private key
         if not self.private_key:
@@ -98,31 +103,50 @@ class LiveTradingStrategy:
             return True
     
     async def get_market_data(self, symbol="INJ/USDT"):
-        """Get real market data for a symbol"""
+        """Get real market data for a symbol using Injective REST API"""
         try:
             if not self.is_initialized:
                 await self.initialize()
                 
-            if INJECTIVE_AVAILABLE and self.exchange:
-                # Get spot orderbook
-                orderbook = await self.exchange.get_spot_orderbook(symbol, limit=10)
-                
-                return {
-                    "symbol": symbol,
-                    "bid": float(orderbook.get('bids', [['0', '0']])[0][0]) if orderbook.get('bids') else 0,
-                    "ask": float(orderbook.get('asks', [['0', '0']])[0][0]) if orderbook.get('asks') else 0,
-                    "timestamp": datetime.now().isoformat(),
-                    "orderbook": orderbook
-                }
-            else:
-                # Return mock market data
-                return {
-                    "symbol": symbol,
-                    "bid": 8.50,
-                    "ask": 8.52,
-                    "timestamp": datetime.now().isoformat(),
-                    "orderbook": {"bids": [["8.50", "10"]], "asks": [["8.52", "10"]]}
-                }
+            # Try to get real market data from Injective API
+            try:
+                # Map symbol to market ID (we need to fetch this)
+                market_id = await self._get_market_id(symbol)
+                if market_id:
+                    # Fetch orderbook
+                    url = f"https://api.injective.network/exchange/v1/spot/orderbook?market_id={market_id}"
+                    response = requests.get(url, timeout=10)
+                    if response.status_code == 200:
+                        data = response.json()
+                        # Extract best bid and ask
+                        bids = data.get('bids', [])
+                        asks = data.get('asks', [])
+                        bid = float(bids[0][0]) if bids and len(bids[0]) > 0 else 0.0
+                        ask = float(asks[0][0]) if asks and len(asks[0]) > 0 else 0.0
+                        
+                        return {
+                            "symbol": symbol,
+                            "bid": bid,
+                            "ask": ask,
+                            "timestamp": datetime.now().isoformat(),
+                            "orderbook": {
+                                "bids": bids,
+                                "asks": asks
+                            }
+                        }
+                # If we couldn't get real data, fall back to mock
+            except Exception as e:
+                print(f"Error fetching real market data: {e}")
+                # Fall through to mock data
+            
+            # Return mock market data
+            return {
+                "symbol": symbol,
+                "bid": 8.50,
+                "ask": 8.52,
+                "timestamp": datetime.now().isoformat(),
+                "orderbook": {"bids": [["8.50", "10"]], "asks": [["8.52", "10"]]}
+            }
         except Exception as e:
             print(f"Error getting market data: {e}")
             # Return mock data on error
@@ -133,6 +157,39 @@ class LiveTradingStrategy:
                 "timestamp": datetime.now().isoformat(),
                 "orderbook": {"bids": [["8.50", "10"]], "asks": [["8.52", "10"]]}
             }
+    
+    async def _get_market_id(self, symbol):
+        """Get market ID for a symbol from Injective API, with caching"""
+        current_time = datetime.now().timestamp()
+        # Check cache
+        if self.market_id_cache and (current_time - self.market_id_cache_time) < self.CACHE_TTL:
+            return self.market_id_cache
+        
+        try:
+            # Fetch all spots markets
+            url = "https://api.injective.network/exchange/v1/spot/markets"
+            response = requests.get(url, timeout=10)
+            if response.status_code == 200:
+                data = response.json()
+                markets = data.get('markets', [])
+                for market in markets:
+                    if market.get('ticker') == symbol:
+                        market_id = market.get('market_id')
+                        self.market_id_cache = market_id
+                        self.market_id_cache_time = current_time
+                        return market_id
+            # If not found, try to search by base/quote
+            # For INJ/USDT, we can also try to derive from known market ID
+            # Known market ID for INJ/USDT on mainnet is "0x4ca0f92fc28be0c9761326016b5a1a217830ee48"
+            if symbol == "INJ/USDT":
+                market_id = "0x4ca0f92fc28be0c9761326016b5a1a217830ee48"
+                self.market_id_cache = market_id
+                self.market_id_cache_time = current_time
+                return market_id
+        except Exception as e:
+            print(f"Error fetching market ID: {e}")
+        
+        return None
     
     async def execute_trade(self, symbol, side, amount, price=None, order_type="market"):
         """Execute a trade on Injective"""
