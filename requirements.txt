@@ -1,6 +1,7 @@
 Flask==3.0.0
 python-dotenv==1.0.0
 gunicorn==21.2.0
-injective-py
+# injective-py — disabled (requires Rust, use mock fallback for now)
 requests
 pyyaml
+eth-account==0.11.0
