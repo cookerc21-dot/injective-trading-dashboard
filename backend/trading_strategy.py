@@ -114,7 +114,7 @@ def fetch_price(asset_id: str) -> dict | None:
 def fetch_historical(
     asset_id: str, days: int = 7
 ) -> list[dict]:
-    """Fetch OHLCV candles from CoinGecko."""
+    """Fetch OHLCV candles from CoinGecko with retry."""
     info = ASSETS.get(asset_id)
     if not info:
         return []
@@ -123,28 +123,44 @@ def fetch_historical(
     cached = _cache_get(cache_key, ttl_seconds=300)
     if cached:
         return cached
-    try:
-        url = (
-            f"https://api.coingecko.com/api/v3/coins/{cg_id}/ohlc"
-            f"?vs_currency=usd&days={days}"
-        )
-        r = requests.get(url, timeout=15)
-        if r.status_code != 200:
+    for attempt in range(3):
+        try:
+            url = (
+                f"https://api.coingecko.com/api/v3/coins/{cg_id}/ohlc"
+                f"?vs_currency=usd&days={days}"
+            )
+            r = requests.get(url, timeout=15)
+            if r.status_code == 429:
+                import time
+                time.sleep(2 ** attempt)
+                continue
+            if r.status_code != 200:
+                if attempt < 2:
+                    import time
+                    time.sleep(2 ** attempt)
+                    continue
+                return []
+            raw = r.json()  # [[timestamp_ms, open, high, low, close], ...]
+            if not raw or not isinstance(raw, list):
+                return []
+            candles = []
+            for c in raw:
+                candles.append({
+                    "timestamp": datetime.fromtimestamp(c[0] / 1000).isoformat(),
+                    "open": c[1],
+                    "high": c[2],
+                    "low": c[3],
+                    "close": c[4],
+                })
+            _cache_set(cache_key, candles)
+            return candles
+        except Exception:
+            if attempt < 2:
+                import time
+                time.sleep(2 ** attempt)
+                continue
             return []
-        raw = r.json()  # [[timestamp_ms, open, high, low, close], ...]
-        candles = []
-        for c in raw:
-            candles.append({
-                "timestamp": datetime.fromtimestamp(c[0] / 1000).isoformat(),
-                "open": c[1],
-                "high": c[2],
-                "low": c[3],
-                "close": c[4],
-            })
-        _cache_set(cache_key, candles)
-        return candles
-    except Exception:
-        return []
+    return []
 
 
 # ─── Backtesting engine ──────────────────────────────────────────────
