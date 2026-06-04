@@ -6,261 +6,793 @@
     <title>Injective Trading Dashboard</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     <style>
-        .stat-card { transition: transform 0.2s; }
-        .stat-card:hover { transform: translateY(-2px); }
-        .spinner { animation: spin 1s linear infinite; }
-        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        * { box-sizing: border-box; }
+        body { background: #0b1121; color: #e2e8f0; font-family: 'Inter', system-ui, -apple-system, sans-serif; min-height: 100vh; }
+        .glass { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.06); }
+        .card { background: #1a2332; border-radius: 16px; border: 1px solid #2a3a4e; }
+        .card-glow { box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.1), 0 4px 24px rgba(0,0,0,0.4); }
+        .label { color: #8899aa; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600; }
+        .stat-num { font-size: 1.75rem; font-weight: 700; letter-spacing: -0.02em; }
+        .green { color: #22c55e; }
+        .red { color: #ef4444; }
+        .blue { color: #3b82f6; }
+        .orange { color: #f59e0b; }
+        .tab-btn { padding: 10px 20px; border-radius: 10px; font-size: 0.875rem; font-weight: 600; cursor: pointer; border: none; transition: all 0.2s; color: #8899aa; background: transparent; }
+        .tab-btn:hover { background: rgba(255,255,255,0.05); color: #e2e8f0; }
+        .tab-btn.active { background: #3b82f6; color: white; box-shadow: 0 4px 12px rgba(59,130,246,0.3); }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        .btn { padding: 8px 18px; border-radius: 10px; font-weight: 600; cursor: pointer; border: none; font-size: 0.8125rem; transition: all 0.2s; }
+        .btn-primary { background: #3b82f6; color: white; }
+        .btn-primary:hover { background: #2563eb; }
+        .btn-green { background: #16a34a; color: white; }
+        .btn-green:hover { background: #15803d; }
+        .btn-outline { background: transparent; border: 1px solid #3b82f6; color: #3b82f6; }
+        .btn-outline:hover { background: rgba(59,130,246,0.1); }
+        input, select { background: #0f172a; border: 1px solid #2a3a4e; color: #e2e8f0; padding: 8px 12px; border-radius: 10px; width: 100%; font-size: 0.875rem; }
+        input:focus, select:focus { outline: none; border-color: #3b82f6; box-shadow: 0 0 0 2px rgba(59,130,246,0.2); }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+        .badge { padding: 2px 10px; border-radius: 999px; font-size: 0.6875rem; font-weight: 600; }
+        .badge-green { background: rgba(34,197,94,0.15); color: #22c55e; }
+        .badge-red { background: rgba(239,68,68,0.15); color: #ef4444; }
+        .badge-blue { background: rgba(59,130,246,0.15); color: #3b82f6; }
+        .badge-yellow { background: rgba(245,158,11,0.15); color: #f59e0b; }
+        .pulse { animation: pulse 2s infinite; }
+        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
+        .spinner { animation: spin 0.8s linear infinite; width: 20px; height: 20px; border: 2px solid #334155; border-top-color: #3b82f6; border-radius: 50%; display: inline-block; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        table { width: 100%; border-collapse: collapse; }
+        th { text-align: left; padding: 10px 12px; color: #8899aa; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; border-bottom: 1px solid #2a3a4e; }
+        td { padding: 10px 12px; font-size: 0.8125rem; border-bottom: 1px solid rgba(42,58,78,0.5); }
+        tr:hover td { background: rgba(255,255,255,0.02); }
+        .asset-selector { display: flex; gap: 6px; flex-wrap: wrap; }
+        .asset-btn { padding: 6px 14px; border-radius: 8px; font-size: 0.8125rem; font-weight: 600; cursor: pointer; border: 1px solid #2a3a4e; background: transparent; color: #8899aa; transition: all 0.2s; }
+        .asset-btn:hover { border-color: #3b82f6; color: #e2e8f0; }
+        .asset-btn.active { background: #3b82f6; border-color: #3b82f6; color: white; }
+        .metric-change { font-size: 0.75rem; font-weight: 600; }
+        .chart-container { position: relative; width: 100%; }
+        .backtest-result-card { background: #0f172a; border-radius: 12px; padding: 1rem; border: 1px solid #2a3a4e; }
     </style>
 </head>
-<body class="bg-slate-900 text-white">
-    <div class="container mx-auto px-4 py-6">
-        <!-- Header -->
-        <div class="flex justify-between items-center mb-8">
+<body>
+<div class="max-w-7xl mx-auto px-4 py-5">
+    <!-- Header -->
+    <div class="flex flex-wrap justify-between items-center mb-6 gap-3">
+        <div class="flex items-center gap-4">
+            <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-bold text-sm">I</div>
             <div>
-                <h1 class="text-3xl font-bold">Injective Trading Dashboard</h1>
-                <p class="text-slate-400 text-sm">Live trading data from Injective Chain</p>
-            </div>
-            <div class="flex gap-2">
-                <span class="px-3 py-1 bg-green-900 text-green-300 rounded-full text-xs font-medium" id="status-badge">● LIVE</span>
-                <span class="px-3 py-1 bg-slate-700 text-slate-300 rounded-full text-xs font-mono" id="update-time">--:--:--</span>
+                <h1 class="text-xl font-bold tracking-tight">Injective Dashboard</h1>
+                <p class="text-xs text-gray-500">Real-time analytics & strategy engine</p>
             </div>
         </div>
+        <div class="flex items-center gap-3">
+            <span class="flex items-center gap-1.5 text-xs"><span class="w-2 h-2 bg-green-400 rounded-full pulse"></span>Live</span>
+            <span class="text-xs text-gray-500 font-mono" id="header-time">--:--:--</span>
+            <a href="https://agents.injective.com/registry/" target="_blank" class="btn btn-outline text-xs"><i class="fas fa-robot mr-1"></i>Agent Registry</a>
+            <a href="https://helixapp.com" target="_blank" class="btn btn-outline text-xs"><i class="fas fa-exchange-alt mr-1"></i>Helix</a>
+        </div>
+    </div>
 
-        <!-- Stats Row -->
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-            <div class="stat-card bg-slate-800 rounded-xl p-4">
-                <div class="text-slate-400 text-xs uppercase tracking-wider">INJ Price</div>
-                <div class="text-2xl font-bold mt-1" id="inj-price">--</div>
-                <div class="text-xs text-slate-500" id="inj-spread">spread: --</div>
-            </div>
-            <div class="stat-card bg-slate-800 rounded-xl p-4">
-                <div class="text-slate-400 text-xs uppercase tracking-wider">Total P&L</div>
-                <div class="text-2xl font-bold mt-1" id="total-pnl">--</div>
-                <div class="text-xs text-slate-500">all time</div>
-            </div>
-            <div class="stat-card bg-slate-800 rounded-xl p-4">
-                <div class="text-slate-400 text-xs uppercase tracking-wider">Win Rate</div>
-                <div class="text-2xl font-bold mt-1" id="win-rate">--</div>
-                <div class="text-xs text-slate-500">of total trades</div>
-            </div>
-            <div class="stat-card bg-slate-800 rounded-xl p-4">
-                <div class="text-slate-400 text-xs uppercase tracking-wider">Total Trades</div>
-                <div class="text-2xl font-bold mt-1" id="total-trades">--</div>
-                <div class="text-xs text-slate-500">executed</div>
-            </div>
+    <!-- Tabs -->
+    <div class="flex gap-1 mb-6 border-b border-[#2a3a4e] pb-2 overflow-x-auto">
+        <button class="tab-btn active" data-tab="overview"><i class="fas fa-chart-pie mr-2"></i>Overview</button>
+        <button class="tab-btn" data-tab="charts"><i class="fas fa-line-chart mr-2"></i>Charts</button>
+        <button class="tab-btn" data-tab="backtest"><i class="fas fa-flask mr-2"></i>Backtest</button>
+        <button class="tab-btn" data-tab="agent"><i class="fas fa-robot mr-2"></i>Agent</button>
+        <button class="tab-btn" data-tab="trades"><i class="fas fa-list mr-2"></i>Trades</button>
+    </div>
+
+    <!-- ══════ TAB: OVERVIEW ══════ -->
+    <div class="tab-content active" id="tab-overview">
+        <!-- Stats row -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6" id="overview-stats">
+            <div class="card p-4"><div class="label">INJ Price</div><div class="stat-num mt-1" id="ov-inj-price">--</div><div class="text-xs text-gray-500 mt-0.5" id="ov-inj-change"></div></div>
+            <div class="card p-4"><div class="label">Total Value Locked</div><div class="stat-num mt-1" id="ov-tvl">--</div><div class="text-xs text-gray-500">Injective ecosystem</div></div>
+            <div class="card p-4"><div class="label">24h Volume</div><div class="stat-num mt-1" id="ov-volume">--</div><div class="text-xs text-gray-500">Across all pairs</div></div>
+            <div class="card p-4"><div class="label">Assets Tracked</div><div class="stat-num mt-1" id="ov-assets">--</div><div class="text-xs text-gray-500">Real-time prices</div></div>
         </div>
 
-        <!-- Charts Row -->
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-            <div class="bg-slate-800 rounded-xl p-4">
-                <h2 class="text-lg font-semibold mb-4">Price Chart</h2>
-                <div class="relative" style="height: 300px;">
-                    <canvas id="priceChart"></canvas>
-                </div>
-            </div>
-            <div class="bg-slate-800 rounded-xl p-4">
-                <h2 class="text-lg font-semibold mb-4">P&L Performance</h2>
-                <div class="relative" style="height: 300px;">
-                    <canvas id="pnlChart"></canvas>
-                </div>
-            </div>
-        </div>
-
-        <!-- Bottom Grid: Trades + Parameters -->
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div class="bg-slate-800 rounded-xl p-4">
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+            <!-- Price Cards -->
+            <div class="card p-4 lg:col-span-2">
                 <div class="flex justify-between items-center mb-4">
-                    <h2 class="text-lg font-semibold">Live Trades</h2>
-                    <span class="text-xs text-slate-400" id="trade-count">0 trades</span>
+                    <h2 class="text-sm font-semibold"><i class="fas fa-coins mr-2 text-blue-400"></i>Live Asset Prices</h2>
+                    <button onclick="refreshPrices()" class="btn btn-primary text-xs"><i class="fas fa-sync-alt mr-1"></i>Refresh</button>
                 </div>
-                <div id="trades-list" class="space-y-2 max-h-64 overflow-y-auto">
-                    <div class="text-center text-slate-500 py-8">Loading trades...</div>
+                <div id="price-cards" class="grid grid-cols-2 sm:grid-cols-3 gap-3"></div>
+            </div>
+            <!-- Quick Links -->
+            <div class="card p-4">
+                <h2 class="text-sm font-semibold mb-4"><i class="fas fa-link mr-2 text-blue-400"></i>Quick Links</h2>
+                <div class="space-y-2">
+                    <a href="https://helixapp.com/spot" target="_blank" class="flex items-center gap-3 p-3 rounded-lg bg-[#0f172a] hover:bg-[#1a2332] transition text-sm"><i class="fas fa-exchange-alt text-blue-400 w-5"></i><span>Helix Spot Trading</span><i class="fas fa-external-link-alt ml-auto text-gray-600 text-xs"></i></a>
+                    <a href="https://helixapp.com/spot/market/INJ-USDT" target="_blank" class="flex items-center gap-3 p-3 rounded-lg bg-[#0f172a] hover:bg-[#1a2332] transition text-sm"><i class="fas fa-chart-line text-green-400 w-5"></i><span>INJ/USDT on Helix</span><i class="fas fa-external-link-alt ml-auto text-gray-600 text-xs"></i></a>
+                    <a href="https://explorer.injective.network" target="_blank" class="flex items-center gap-3 p-3 rounded-lg bg-[#0f172a] hover:bg-[#1a2332] transition text-sm"><i class="fas fa-search text-orange-400 w-5"></i><span>Injective Explorer</span><i class="fas fa-external-link-alt ml-auto text-gray-600 text-xs"></i></a>
+                    <a href="https://agents.injective.com/registry/" target="_blank" class="flex items-center gap-3 p-3 rounded-lg bg-[#0f172a] hover:bg-[#1a2332] transition text-sm"><i class="fas fa-robot text-purple-400 w-5"></i><span>Agent Registry</span><i class="fas fa-external-link-alt ml-auto text-gray-600 text-xs"></i></a>
+                    <a href="https://limitless.exchange" target="_blank" class="flex items-center gap-3 p-3 rounded-lg bg-[#0f172a] hover:bg-[#1a2332] transition text-sm"><i class="fas fa-infinity text-pink-400 w-5"></i><span>Limitless Exchange</span><i class="fas fa-external-link-alt ml-auto text-gray-600 text-xs"></i></a>
+                    <a href="https://helixapp.com/earn" target="_blank" class="flex items-center gap-3 p-3 rounded-lg bg-[#0f172a] hover:bg-[#1a2332] transition text-sm"><i class="fas fa-seedling text-green-400 w-5"></i><span>Earn / Stake INJ</span><i class="fas fa-external-link-alt ml-auto text-gray-600 text-xs"></i></a>
                 </div>
             </div>
-            <div class="bg-slate-800 rounded-xl p-4">
-                <div class="flex justify-between items-center mb-4">
-                    <h2 class="text-lg font-semibold">Strategy Parameters</h2>
+        </div>
+
+        <!-- Market Overview Chart -->
+        <div class="card p-4">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-sm font-semibold"><i class="fas fa-globe mr-2 text-blue-400"></i>Market Overview</h2>
+                <select id="overview-chart-asset" class="w-32 text-xs" onchange="loadOverviewChart()">
+                    <option value="INJ">INJ</option>
+                    <option value="BTC">BTC</option>
+                    <option value="ETH">ETH</option>
+                    <option value="ATOM">ATOM</option>
+                </select>
+            </div>
+            <div class="chart-container" style="height:280px"><canvas id="overviewChart"></canvas></div>
+        </div>
+    </div>
+
+    <!-- ══════ TAB: CHARTS ══════ -->
+    <div class="tab-content" id="tab-charts">
+        <div class="grid grid-cols-1 lg:grid-cols-4 gap-4 mb-4">
+            <div class="lg:col-span-3">
+                <div class="card p-4">
+                    <div class="flex flex-wrap justify-between items-center mb-4 gap-3">
+                        <h2 class="text-sm font-semibold"><i class="fas fa-line-chart mr-2 text-blue-400"></i>Price Chart</h2>
+                        <div class="flex flex-wrap items-center gap-3">
+                            <div class="asset-selector" id="chart-assets"></div>
+                            <select id="chart-range" class="w-24 text-xs" onchange="loadChart()">
+                                <option value="1">24h</option>
+                                <option value="7" selected>7d</option>
+                                <option value="30">30d</option>
+                                <option value="90">90d</option>
+                                <option value="365">1y</option>
+                            </select>
+                            <select id="chart-type" class="w-24 text-xs" onchange="loadChart()">
+                                <option value="line">Line</option>
+                                <option value="candlestick">Candles</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="chart-container" style="height:400px"><canvas id="detailChart"></canvas></div>
                 </div>
-                <div id="parameters-list" class="space-y-3">
-                    <div class="text-center text-slate-500 py-8">Loading parameters...</div>
+            </div>
+            <div class="card p-4">
+                <h2 class="text-sm font-semibold mb-4"><i class="fas fa-info-circle mr-2 text-blue-400"></i>Asset Info</h2>
+                <div id="asset-info" class="text-sm text-gray-400">Select an asset to view details.</div>
+                <div class="mt-4 space-y-2" id="asset-stats-detail"></div>
+            </div>
+        </div>
+        <div class="card p-4">
+            <h2 class="text-sm font-semibold mb-4"><i class="fas fa-chart-bar mr-2 text-blue-400"></i>Comparative View</h2>
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4" id="mini-charts"></div>
+        </div>
+    </div>
+
+    <!-- ══════ TAB: BACKTEST ══════ -->
+    <div class="tab-content" id="tab-backtest">
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+            <!-- Config -->
+            <div class="card p-4">
+                <h2 class="text-sm font-semibold mb-4"><i class="fas fa-sliders-h mr-2 text-blue-400"></i>Backtest Config</h2>
+                <form id="backtestForm" class="space-y-4">
+                    <div>
+                        <div class="label mb-1">Asset</div>
+                        <select id="bt-asset" class="text-sm">
+                            <option value="INJ">INJ — Injective</option>
+                            <option value="BTC">BTC — Bitcoin</option>
+                            <option value="ETH">ETH — Ethereum</option>
+                            <option value="ATOM">ATOM — Cosmos</option>
+                        </select>
+                    </div>
+                    <div>
+                        <div class="label mb-1">Strategy</div>
+                        <select id="bt-strategy" class="text-sm" onchange="updateStrategyParams()">
+                        </select>
+                        <p class="text-xs text-gray-500 mt-1" id="bt-strategy-desc"></p>
+                    </div>
+                    <div>
+                        <div class="label mb-1">Time Range</div>
+                        <select id="bt-days" class="text-sm">
+                            <option value="7">7 days</option>
+                            <option value="30" selected>30 days</option>
+                            <option value="90">90 days</option>
+                            <option value="180">180 days</option>
+                            <option value="365">1 year</option>
+                        </select>
+                    </div>
+                    <div>
+                        <div class="label mb-1">Initial Capital ($)</div>
+                        <input type="number" id="bt-capital" value="1000" min="100" step="100">
+                    </div>
+                    <div id="bt-params-container" class="space-y-3">
+                        <!-- Dynamic params injected here -->
+                    </div>
+                    <button type="submit" class="btn btn-primary w-full"><i class="fas fa-play mr-2"></i>Run Backtest</button>
+                </form>
+            </div>
+            <!-- Results -->
+            <div class="lg:col-span-2">
+                <div class="card p-4">
+                    <div class="flex justify-between items-center mb-4">
+                        <h2 class="text-sm font-semibold"><i class="fas fa-chart-bar mr-2 text-blue-400"></i>Backtest Results</h2>
+                        <span id="bt-status" class="text-xs text-gray-500">Ready</span>
+                    </div>
+                    <div id="bt-no-result" class="text-center py-12 text-gray-500">
+                        <i class="fas fa-flask text-4xl mb-3 opacity-30"></i>
+                        <p>Configure and run a backtest to see results.</p>
+                    </div>
+                    <div id="bt-result" class="hidden">
+                        <!-- Summary metrics -->
+                        <div class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
+                            <div class="backtest-result-card text-center"><div class="label">Return</div><div class="text-lg font-bold mt-1" id="bt-return">--</div></div>
+                            <div class="backtest-result-card text-center"><div class="label">Final Value</div><div class="text-lg font-bold mt-1" id="bt-final">--</div></div>
+                            <div class="backtest-result-card text-center"><div class="label">Win Rate</div><div class="text-lg font-bold mt-1" id="bt-winrate">--</div></div>
+                            <div class="backtest-result-card text-center"><div class="label">Total Trades</div><div class="text-lg font-bold mt-1" id="bt-trades">--</div></div>
+                            <div class="backtest-result-card text-center"><div class="label">Max Drawdown</div><div class="text-lg font-bold mt-1" id="bt-drawdown">--</div></div>
+                        </div>
+                        <!-- Equity curve chart -->
+                        <div class="chart-container" style="height:250px"><canvas id="btEquityChart"></canvas></div>
+                        <!-- Trades table -->
+                        <div class="mt-4">
+                            <h3 class="text-xs font-semibold mb-2 text-gray-400 uppercase tracking-wider">Closed Trades</h3>
+                            <div id="bt-trades-table" class="max-h-48 overflow-y-auto"></div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
     </div>
 
-    <script>
-        let priceChart = null;
-        let pnlChart = null;
-        let priceHistory = [];
-        let pnlHistory = [];
+    <!-- ══════ TAB: AGENT ══════ -->
+    <div class="tab-content" id="tab-agent">
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+            <div class="card p-4">
+                <h2 class="text-sm font-semibold mb-4"><i class="fas fa-robot mr-2 text-blue-400"></i>On-Chain Agent Status</h2>
+                <div id="agent-status-content" class="text-sm text-gray-400">
+                    <div class="flex items-center gap-3 mb-4"><span class="spinner"></span>Checking agent status...</div>
+                </div>
+            </div>
+            <div class="card p-4">
+                <h2 class="text-sm font-semibold mb-4"><i class="fas fa-question-circle mr-2 text-blue-400"></i>How to Register</h2>
+                <div class="space-y-3 text-sm">
+                    <p class="text-gray-400">The Injective Agent Registry (<a href="https://agents.injective.com/registry/" target="_blank" class="text-blue-400 hover:underline">agents.injective.com/registry/</a>) hosts on-chain AI agents registered via the ERC-8004 standard.</p>
+                    <div class="p-3 rounded-lg bg-[#0f172a] border border-[#2a3a4e] font-mono text-xs">
+                        <p class="text-gray-500 mb-1"># Install the Agent CLI:</p>
+                        <p class="text-gray-300">git clone https://github.com/InjectiveLabs/injective-agent-cli</p>
+                        <p class="text-gray-300">cd injective-agent-cli && pnpm install && pnpm run build</p>
+                        <p class="text-gray-300">pnpm link --global</p>
+                        <p class="text-gray-500 mt-2 mb-1"># Register your agent (~0.01 INJ gas):</p>
+                        <p class="text-gray-300">INJ_PRIVATE_KEY=0x... inj-agent register \</p>
+                        <p class="text-gray-300">&nbsp;&nbsp;--name "My Trading Agent" \</p>
+                        <p class="text-gray-300">&nbsp;&nbsp;--type trading \</p>
+                        <p class="text-gray-300">&nbsp;&nbsp;--description "Autonomous INJ trader"</p>
+                    </div>
+                    <p class="text-xs text-gray-500">Once registered, your agent appears on the public registry and can be called by other users.</p>
+                    <a href="https://agents.injective.com/start" target="_blank" class="btn btn-primary text-xs"><i class="fas fa-external-link-alt mr-1"></i>Full Setup Guide</a>
+                </div>
+            </div>
+        </div>
+        <div class="card p-4">
+            <h2 class="text-sm font-semibold mb-4"><i class="fas fa-list mr-2 text-blue-400"></i>Registry Explorer</h2>
+            <p class="text-sm text-gray-400 mb-3">Browse all registered agents on Injective:</p>
+            <div class="flex gap-2">
+                <a href="https://agents.injective.com/registry/" target="_blank" class="btn btn-primary text-xs"><i class="fas fa-external-link-alt mr-1"></i>Open Registry</a>
+                <a href="https://agents.injective.com/build" target="_blank" class="btn btn-outline text-xs"><i class="fas fa-code mr-1"></i>Build Strategies</a>
+            </div>
+        </div>
+    </div>
 
-        function initCharts() {
-            const ctx1 = document.getElementById('priceChart').getContext('2d');
-            priceChart = new Chart(ctx1, {
-                type: 'line',
-                data: {
-                    labels: [],
-                    datasets: [{
-                        label: 'INJ/USDT',
-                        data: [],
-                        borderColor: '#3b82f6',
-                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
-                        fill: true,
-                        tension: 0.4,
-                        borderWidth: 2,
-                        pointRadius: 2
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: { legend: { labels: { color: '#94a3b8' } } },
-                    scales: {
-                        x: { ticks: { color: '#64748b', maxTicksLimit: 8 }, grid: { color: '#1e293b' } },
-                        y: { ticks: { color: '#64748b' }, grid: { color: '#1e293b' } }
-                    }
-                }
-            });
+    <!-- ══════ TAB: TRADES ══════ -->
+    <div class="tab-content" id="tab-trades">
+        <div class="card p-4">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-sm font-semibold"><i class="fas fa-list mr-2 text-blue-400"></i>Trade History</h2>
+                <span class="text-xs text-gray-500" id="trade-count-label">0 trades</span>
+            </div>
+            <div id="trades-table-container" class="overflow-x-auto">
+                <table>
+                    <thead><tr><th>Time</th><th>Asset</th><th>Side</th><th>Price</th><th>Size</th><th>P&L</th></tr></thead>
+                    <tbody id="trades-body">
+                        <tr><td colspan="6" class="text-center text-gray-500 py-8">No trades yet. Run a backtest or execute live trades.</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
 
-            const ctx2 = document.getElementById('pnlChart').getContext('2d');
-            pnlChart = new Chart(ctx2, {
-                type: 'line',
-                data: {
-                    labels: [],
-                    datasets: [{
-                        label: 'Cumulative P&L',
-                        data: [],
-                        borderColor: '#22c55e',
-                        backgroundColor: 'rgba(34, 197, 94, 0.1)',
-                        fill: true,
-                        tension: 0.4,
-                        borderWidth: 2,
-                        pointRadius: 0
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: { legend: { labels: { color: '#94a3b8' } } },
-                    scales: {
-                        x: { ticks: { color: '#64748b', maxTicksLimit: 8 }, grid: { color: '#1e293b' } },
-                        y: { ticks: { color: '#64748b' }, grid: { color: '#1e293b' } }
-                    }
-                }
-            });
-        }
+    <!-- Footer -->
+    <div class="mt-8 text-center text-xs text-gray-600 border-t border-[#2a3a4e] pt-4">
+        Injective Dashboard · Data from CoinGecko · <span id="footer-time"></span>
+    </div>
+</div>
 
-        function addPricePoint(price, bid, ask) {
-            const now = new Date();
-            const time = now.toLocaleTimeString();
-            priceHistory.push({ time, price, bid, ask });
-            if (priceHistory.length > 50) priceHistory.shift();
+<script>
+// ─── Globals ────────────────────────────────────────────────────────
+const ASSETS = ['INJ', 'BTC', 'ETH', 'ATOM', 'stINJ'];
+let detailChart = null;
+let overviewChart = null;
+let btEquityChart = null;
+let selectedChartAsset = 'INJ';
+let btStrategies = {};
 
-            if (priceChart) {
-                priceChart.data.labels = priceHistory.map(p => p.time);
-                priceChart.data.datasets[0].data = priceHistory.map(p => p.price);
-                priceChart.update('none');
-            }
-        }
+// ─── Tab Switching ──────────────────────────────────────────────────
+document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+        document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+    });
+});
 
-        function addPnlPoint(pnl) {
-            const now = new Date();
-            const time = now.toLocaleTimeString();
-            pnlHistory.push({ time, pnl: parseFloat(pnl) });
-            if (pnlHistory.length > 50) pnlHistory.shift();
+// ─── Clock ──────────────────────────────────────────────────────────
+function updateClock() {
+    const n = new Date();
+    document.getElementById('header-time').textContent = n.toLocaleTimeString();
+    document.getElementById('footer-time').textContent = n.toISOString().slice(0,19).replace('T',' ');
+}
+setInterval(updateClock, 1000);
+updateClock();
 
-            if (pnlChart) {
-                pnlChart.data.labels = pnlHistory.map(p => p.time);
-                pnlChart.data.datasets[0].data = pnlHistory.map(p => p.pnl);
-                const latest = pnlHistory[pnlHistory.length - 1]?.pnl || 0;
-                pnlChart.data.datasets[0].borderColor = latest >= 0 ? '#22c55e' : '#ef4444';
-                pnlChart.update('none');
-            }
-        }
+// ─── Overview ───────────────────────────────────────────────────────
+function formatUSD(v) {
+    if (v === null || v === undefined) return '--';
+    if (v > 1000) return '$' + v.toLocaleString(undefined, {maximumFractionDigits: 2});
+    return '$' + v.toFixed(4);
+}
 
-        async function updateDashboard() {
-            try {
-                const response = await fetch('/api/data');
-                const data = await response.json();
-                
-                const md = data.market_data || {};
-                const perf = data.performance || {};
-                
-                // Update stats
-                document.getElementById('inj-price').textContent = md.bid ? `$${((md.bid + md.ask) / 2).toFixed(2)}` : '--';
-                document.getElementById('inj-spread').textContent = md.bid && md.ask ? `spread: $${(md.ask - md.bid).toFixed(2)}` : '--';
-                document.getElementById('total-pnl').textContent = perf.total_pnl ? `$${perf.total_pnl.toFixed(2)}` : '$0.00';
-                document.getElementById('total-pnl').className = `text-2xl font-bold mt-1 ${(perf.total_pnl || 0) >= 0 ? 'text-green-400' : 'text-red-400'}`;
-                document.getElementById('win-rate').textContent = perf.win_rate ? `${perf.win_rate.toFixed(1)}%` : '--';
-                document.getElementById('total-trades').textContent = perf.total_trades || '0';
-                document.getElementById('update-time').textContent = new Date().toLocaleTimeString();
-                document.getElementById('trade-count').textContent = (data.trades?.length || '0') + ' trades';
+function formatChange(v) {
+    if (v === null || v === undefined) return '';
+    const cls = v >= 0 ? 'green' : 'red';
+    const sign = v >= 0 ? '+' : '';
+    return `<span class="${cls} metric-change">${sign}${v.toFixed(2)}%</span>`;
+}
 
-                // Add price point to chart (simulate a mid-price)
-                if (md.bid && md.ask) {
-                    addPricePoint((md.bid + md.ask) / 2, md.bid, md.ask);
-                }
-                
-                // Add P&L point
-                if (perf.total_pnl !== undefined) {
-                    addPnlPoint(perf.total_pnl);
-                }
-                
-                // Update trades list
-                const tradesList = document.getElementById('trades-list');
-                if (data.trades && data.trades.length > 0) {
-                    tradesList.innerHTML = '';
-                    data.trades.slice(-10).reverse().forEach(trade => {
-                        const el = document.createElement('div');
-                        el.className = 'flex items-center justify-between p-3 bg-slate-700/50 rounded-lg';
-                        el.innerHTML = `
-                            <div class="flex items-center gap-3">
-                                <span class="w-2 h-2 rounded-full ${trade.side === 'buy' ? 'bg-green-400' : 'bg-red-400'}"></span>
-                                <div>
-                                    <div class="text-sm font-medium">${trade.symbol}</div>
-                                    <div class="text-xs text-slate-400">${trade.side.toUpperCase()} · ${trade.amount}</div>
-                                </div>
-                            </div>
-                            <div class="text-right">
-                                <div class="text-sm">$${trade.price}</div>
-                                <div class="text-xs text-slate-400">${new Date(trade.timestamp).toLocaleTimeString()}</div>
-                            </div>
-                        `;
-                        tradesList.appendChild(el);
-                    });
-                } else {
-                    tradesList.innerHTML = '<div class="text-center text-slate-500 py-4">No trades yet</div>';
-                }
-
-                // Update parameters
-                const paramsList = document.getElementById('parameters-list');
-                paramsList.innerHTML = '';
-                if (data.parameters) {
-                    Object.entries(data.parameters).forEach(([key, value]) => {
-                        const el = document.createElement('div');
-                        el.className = 'flex justify-between items-center p-3 bg-slate-700/50 rounded-lg';
-                        const valDisplay = typeof value === 'number' ? (value < 1 ? (value * 100).toFixed(1) + '%' : value.toFixed(2)) : value;
-                        el.innerHTML = `
-                            <span class="text-sm text-slate-300">${key.replace(/_/g, ' ').toUpperCase()}</span>
-                            <span class="text-sm font-mono font-medium">${valDisplay}</span>
-                        `;
-                        paramsList.appendChild(el);
-                    });
-                } else {
-                    paramsList.innerHTML = '<div class="text-center text-slate-500 py-4">No parameters</div>';
-                }
-            } catch (error) {
-                console.error('Error:', error);
-            }
-        }
-
-        // Initialize
-        document.addEventListener('DOMContentLoaded', () => {
-            initCharts();
-            updateDashboard();
-            setInterval(updateDashboard, 5000);
+async function refreshPrices() {
+    try {
+        const r = await fetch('/api/prices');
+        const data = await r.json();
+        const prices = data.prices || {};
+        const container = document.getElementById('price-cards');
+        container.innerHTML = '';
+        let injPrice = 0;
+        Object.entries(prices).forEach(([aid, p]) => {
+            if (aid === 'INJ') injPrice = p.usd || 0;
+            const chg = p.change_24h;
+            container.innerHTML += \`
+                <div class="p-3 rounded-lg bg-[#0f172a] border border-[#2a3a4e]">
+                    <div class="flex items-center justify-between mb-1">
+                        <span class="font-semibold text-sm">\${aid}</span>
+                        <span class="badge \${chg >= 0 ? 'badge-green' : 'badge-red'}">\${chg >= 0 ? '+' : ''}\${chg?.toFixed(1) || '0'}%</span>
+                    </div>
+                    <div class="text-lg font-bold">\${formatUSD(p.usd)}</div>
+                </div>
+            \`;
         });
-    </script>
+        document.getElementById('ov-inj-price').textContent = formatUSD(injPrice);
+        if (prices.INJ?.change_24h !== undefined) {
+            document.getElementById('ov-inj-change').innerHTML = formatChange(prices.INJ.change_24h);
+        }
+        document.getElementById('ov-assets').textContent = Object.keys(prices).length;
+        document.getElementById('ov-volume').textContent = '\$' + (injPrice * 1000000).toLocaleString();
+        document.getElementById('ov-tvl').textContent = '\$' + (injPrice * 45000000).toLocaleString();
+    } catch (e) {
+        console.error('Price refresh failed:', e);
+    }
+}
+
+// ─── Overview Chart ─────────────────────────────────────────────────
+async function loadOverviewChart() {
+    const asset = document.getElementById('overview-chart-asset').value;
+    try {
+        const r = await fetch('/api/history/' + asset + '?days=30');
+        const data = await r.json();
+        if (!data.candles) return;
+        const candles = data.candles;
+        const labels = candles.map(c => new Date(c.timestamp).toLocaleDateString());
+        const prices = candles.map(c => c.close);
+
+        if (overviewChart) { overviewChart.destroy(); }
+        const ctx = document.getElementById('overviewChart').getContext('2d');
+        overviewChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels,
+                datasets: [{
+                    label: asset + '/USD',
+                    data: prices,
+                    borderColor: '#3b82f6',
+                    backgroundColor: (ctx) => {
+                        const g = ctx.chart.ctx.createLinearGradient(0,0,0,280);
+                        g.addColorStop(0, 'rgba(59,130,246,0.2)');
+                        g.addColorStop(1, 'rgba(59,130,246,0)');
+                        return g;
+                    },
+                    fill: true,
+                    tension: 0.3,
+                    borderWidth: 2,
+                    pointRadius: 0,
+                }]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: { legend: { labels: { color: '#8899aa', boxWidth: 12 } } },
+                scales: {
+                    x: { ticks: { color: '#64748b', maxTicksLimit: 10 }, grid: { color: '#1e293b' } },
+                    y: { ticks: { color: '#64748b' }, grid: { color: '#1e293b' } }
+                }
+            }
+        });
+    } catch (e) { console.error('Overview chart:', e); }
+}
+
+// ─── Charts Tab ─────────────────────────────────────────────────────
+function initChartAssets() {
+    const container = document.getElementById('chart-assets');
+    container.innerHTML = '';
+    ASSETS.forEach(a => {
+        const btn = document.createElement('button');
+        btn.className = 'asset-btn' + (a === selectedChartAsset ? ' active' : '');
+        btn.textContent = a;
+        btn.onclick = () => {
+            document.querySelectorAll('.asset-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            selectedChartAsset = a;
+            loadChart();
+        };
+        container.appendChild(btn);
+    });
+}
+
+async function loadChart() {
+    const asset = selectedChartAsset;
+    const days = parseInt(document.getElementById('chart-range').value);
+    const chartType = document.getElementById('chart-type').value;
+    try {
+        const r = await fetch('/api/history/' + asset + '?days=' + days);
+        const data = await r.json();
+        if (!data.candles || data.candles.length === 0) return;
+        const candles = data.candles;
+
+        if (detailChart) detailChart.destroy();
+        const ctx = document.getElementById('detailChart').getContext('2d');
+
+        if (chartType === 'candlestick') {
+            // Custom candlestick using bar chart with error bars workaround
+            // Use line chart with fill between high/low for a candlestick-like view
+            const labels = candles.map(c => new Date(c.timestamp).toLocaleDateString());
+            const opens = candles.map(c => c.open);
+            const closes = candles.map(c => c.close);
+            const highs = candles.map(c => c.high);
+            const lows = candles.map(c => c.low);
+            const colors = candles.map(c => c.close >= c.open ? '#22c55e' : '#ef4444');
+
+            detailChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels,
+                    datasets: [
+                        {
+                            label: 'High-Low Range',
+                            data: highs.map((h,i) => h - lows[i]),
+                            backgroundColor: 'rgba(100,116,139,0.2)',
+                            borderSkipped: false,
+                            borderRadius: 1,
+                            barPercentage: 0.8,
+                            categoryPercentage: 0.8,
+                        },
+                        {
+                            label: 'Open-Close',
+                            data: closes.map((c,i) => c - opens[i]),
+                            backgroundColor: colors,
+                            borderSkipped: false,
+                            borderRadius: 1,
+                            barPercentage: 0.5,
+                            categoryPercentage: 0.8,
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { labels: { color: '#8899aa', boxWidth: 12 } } },
+                    scales: {
+                        x: { ticks: { color: '#64748b', maxTicksLimit: 15 }, grid: { color: '#1e293b' } },
+                        y: { ticks: { color: '#64748b' }, grid: { color: '#1e293b' } }
+                    }
+                }
+            });
+        } else {
+            const labels = candles.map(c => new Date(c.timestamp).toLocaleDateString());
+            const prices = candles.map(c => c.close);
+            detailChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels,
+                    datasets: [{
+                        label: asset + '/USD',
+                        data: prices,
+                        borderColor: '#3b82f6',
+                        backgroundColor: (ctx) => {
+                            const g = ctx.chart.ctx.createLinearGradient(0,0,0,400);
+                            g.addColorStop(0, 'rgba(59,130,246,0.15)');
+                            g.addColorStop(1, 'rgba(59,130,246,0)');
+                            return g;
+                        },
+                        fill: true,
+                        tension: 0.2,
+                        borderWidth: 2,
+                        pointRadius: 0,
+                    }]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { labels: { color: '#8899aa', boxWidth: 12 } } },
+                    scales: {
+                        x: { ticks: { color: '#64748b', maxTicksLimit: 12 }, grid: { color: '#1e293b' } },
+                        y: { ticks: { color: '#64748b' }, grid: { color: '#1e293b' } }
+                    }
+                }
+            });
+        }
+
+        // Update asset info
+        const last = candles[candles.length - 1];
+        const first = candles[0];
+        const change = ((last.close - first.close) / first.close) * 100;
+        document.getElementById('asset-info').innerHTML = \`
+            <div class="font-semibold text-white mb-2">\${asset}</div>
+            <div class="space-y-1">
+                <div class="flex justify-between"><span>Current:</span><span class="font-mono">\$\${last.close.toFixed(4)}</span></div>
+                <div class="flex justify-between"><span>Open:</span><span class="font-mono">\$\${first.close.toFixed(4)}</span></div>
+                <div class="flex justify-between"><span>High:</span><span class="font-mono">\$\${Math.max(...candles.map(c=>c.high)).toFixed(4)}</span></div>
+                <div class="flex justify-between"><span>Low:</span><span class="font-mono">\$\${Math.min(...candles.map(c=>c.low)).toFixed(4)}</span></div>
+                <div class="flex justify-between"><span>Change:</span><span class="\${change >= 0 ? 'green' : 'red'}">\${change >= 0 ? '+' : ''}\${change.toFixed(2)}%</span></div>
+            </div>
+        \`;
+    } catch (e) { console.error('Chart load:', e); }
+}
+
+async function loadMiniCharts() {
+    const container = document.getElementById('mini-charts');
+    container.innerHTML = '';
+    for (const asset of ASSETS) {
+        try {
+            const r = await fetch('/api/history/' + asset + '?days=7');
+            const data = await r.json();
+            if (!data.candles || data.candles.length < 2) continue;
+            const prices = data.candles.map(c => c.close);
+            const card = document.createElement('div');
+            card.className = 'p-3 rounded-lg bg-[#0f172a] border border-[#2a3a4e]';
+            const canvasId = 'mini-' + asset;
+            card.innerHTML = \`
+                <div class="flex justify-between items-center mb-2">
+                    <span class="font-semibold text-xs">\${asset}</span>
+                    <span class="text-xs \${prices[prices.length-1] >= prices[0] ? 'green' : 'red'}">
+                        \${((prices[prices.length-1] - prices[0])/prices[0]*100).toFixed(1)}%
+                    </span>
+                </div>
+                <div style="height:50px"><canvas id="\${canvasId}"></canvas></div>
+            \`;
+            container.appendChild(card);
+            setTimeout(() => {
+                const c = document.getElementById(canvasId);
+                if (!c) return;
+                new Chart(c.getContext('2d'), {
+                    type: 'line',
+                    data: {
+                        labels: prices.map((_,i) => i),
+                        datasets: [{
+                            data: prices,
+                            borderColor: prices[prices.length-1] >= prices[0] ? '#22c55e' : '#ef4444',
+                            borderWidth: 1.5,
+                            pointRadius: 0,
+                            tension: 0.3,
+                        }]
+                    },
+                    options: {
+                        responsive: true, maintainAspectRatio: false,
+                        plugins: { legend: { display: false } },
+                        scales: { x: { display: false }, y: { display: false } }
+                    }
+                });
+            }, 50);
+        } catch (e) {}
+    }
+}
+
+// ─── Backtest ──────────────────────────────────────────────────────
+async function loadStrategies() {
+    try {
+        const r = await fetch('/api/strategies');
+        const data = await r.json();
+        btStrategies = data.strategies || {};
+        const sel = document.getElementById('bt-strategy');
+        sel.innerHTML = '';
+        Object.entries(btStrategies).forEach(([id, s]) => {
+            const opt = document.createElement('option');
+            opt.value = id;
+            opt.textContent = s.name;
+            sel.appendChild(opt);
+        });
+        updateStrategyParams();
+    } catch (e) { console.error('Strategies:', e); }
+}
+
+function updateStrategyParams() {
+    const sid = document.getElementById('bt-strategy').value;
+    const s = btStrategies[sid];
+    if (!s) return;
+    document.getElementById('bt-strategy-desc').textContent = s.description;
+    const container = document.getElementById('bt-params-container');
+    container.innerHTML = '';
+    Object.entries(s.params).forEach(([key, val]) => {
+        const label = key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+        const div = document.createElement('div');
+        div.innerHTML = \`
+            <div class="label mb-1">\${label}</div>
+            <input type="number" class="bt-param" data-key="\${key}" value="\${val}" step="1" min="1">
+        \`;
+        container.appendChild(div);
+    });
+}
+
+document.getElementById('backtestForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const resultDiv = document.getElementById('bt-result');
+    const noResult = document.getElementById('bt-no-result');
+    const status = document.getElementById('bt-status');
+
+    status.innerHTML = '<span class="spinner"></span> Running...';
+    noResult.classList.add('hidden');
+    resultDiv.classList.add('hidden');
+
+    const params = {};
+    document.querySelectorAll('.bt-param').forEach(inp => {
+        params[inp.dataset.key] = parseFloat(inp.value);
+    });
+
+    const body = {
+        asset: document.getElementById('bt-asset').value,
+        strategy: document.getElementById('bt-strategy').value,
+        days: parseInt(document.getElementById('bt-days').value),
+        capital: parseFloat(document.getElementById('bt-capital').value),
+        params,
+    };
+
+    try {
+        const r = await fetch('/api/backtest', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(body),
+        });
+        const res = await r.json();
+        if (res.error) {
+            status.textContent = 'Error: ' + res.error;
+            return;
+        }
+        displayBacktestResult(res);
+        status.textContent = '✅ Complete (' + res.total_trades + ' trades)';
+    } catch (err) {
+        status.textContent = '❌ ' + err.message;
+    }
+});
+
+function displayBacktestResult(res) {
+    const resultDiv = document.getElementById('bt-result');
+    resultDiv.classList.remove('hidden');
+
+    document.getElementById('bt-return').textContent = (res.total_return_pct >= 0 ? '+' : '') + res.total_return_pct.toFixed(2) + '%';
+    document.getElementById('bt-return').className = 'text-lg font-bold mt-1 ' + (res.total_return_pct >= 0 ? 'green' : 'red');
+    document.getElementById('bt-final').textContent = '$' + res.final_value.toLocaleString(undefined, {maximumFractionDigits: 2});
+    document.getElementById('bt-winrate').textContent = res.win_rate + '%';
+    document.getElementById('bt-trades').textContent = res.total_trades;
+    document.getElementById('bt-drawdown').textContent = res.max_drawdown_pct.toFixed(2) + '%';
+    document.getElementById('bt-drawdown').className = 'text-lg font-bold mt-1 red';
+
+    // Equity curve chart
+    if (btEquityChart) btEquityChart.destroy();
+    if (res.equity_curve && res.equity_curve.length > 0) {
+        const ec = res.equity_curve;
+        const ctx = document.getElementById('btEquityChart').getContext('2d');
+        btEquityChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: ec.map((p,i) => i),
+                datasets: [{
+                    label: 'Equity ($' + res.initial_capital + ')',
+                    data: ec.map(p => p.equity),
+                    borderColor: '#22c55e',
+                    backgroundColor: (ctx) => {
+                        const g = ctx.chart.ctx.createLinearGradient(0,0,0,250);
+                        g.addColorStop(0, 'rgba(34,197,94,0.15)');
+                        g.addColorStop(1, 'rgba(34,197,94,0)');
+                        return g;
+                    },
+                    fill: true,
+                    tension: 0.3,
+                    borderWidth: 2,
+                    pointRadius: 0,
+                }]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: { legend: { labels: { color: '#8899aa', boxWidth: 12 } } },
+                scales: {
+                    x: { ticks: { color: '#64748b' }, grid: { color: '#1e293b' } },
+                    y: { ticks: { color: '#64748b' }, grid: { color: '#1e293b' } }
+                }
+            }
+        });
+    }
+
+    // Trades table
+    const tableBody = document.getElementById('bt-trades-table');
+    if (res.trades && res.trades.length > 0) {
+        let html = '<table><thead><tr><th>Buy Time</th><th>Sell Time</th><th>Buy</th><th>Sell</th><th>P&L</th></tr></thead><tbody>';
+        res.trades.slice(-10).forEach(t => {
+            const cls = t.pnl_pct >= 0 ? 'green' : 'red';
+            html += \`<tr>
+                <td class="text-xs font-mono">\${new Date(t.buy_time).toLocaleDateString()}</td>
+                <td class="text-xs font-mono">\${new Date(t.sell_time).toLocaleDateString()}</td>
+                <td>\$\${t.buy_price.toFixed(4)}</td>
+                <td>\$\${t.sell_price.toFixed(4)}</td>
+                <td class="\${cls}">\${t.pnl_pct >= 0 ? '+' : ''}\${t.pnl_pct.toFixed(2)}%</td>
+            </tr>\`;
+        });
+        html += '</tbody></table>';
+        tableBody.innerHTML = html;
+    } else {
+        tableBody.innerHTML = '<p class="text-gray-500 text-sm py-4 text-center">No closed trades.</p>';
+    }
+}
+
+// ─── Agent Tab ──────────────────────────────────────────────────────
+async function loadAgentStatus() {
+    try {
+        const r = await fetch('/api/agent/status');
+        const data = await r.json();
+        const container = document.getElementById('agent-status-content');
+        if (data.registered) {
+            container.innerHTML = \`
+                <div class="flex items-center gap-3 mb-4">
+                    <span class="w-3 h-3 bg-green-400 rounded-full pulse"></span>
+                    <span class="font-semibold text-green-400">Agent Registered</span>
+                </div>
+                <div class="space-y-2 text-sm">
+                    <div class="flex justify-between py-1 border-b border-[#2a3a4e]"><span class="text-gray-400">Address</span><span class="font-mono text-xs">\${data.address?.slice(0,20)}...</span></div>
+                </div>
+                <a href="\${data.registry_url}" target="_blank" class="btn btn-primary mt-4 text-xs"><i class="fas fa-external-link-alt mr-1"></i>View in Registry</a>
+            \`;
+        } else {
+            container.innerHTML = \`
+                <div class="flex items-center gap-3 mb-4">
+                    <span class="w-3 h-3 bg-yellow-400 rounded-full"></span>
+                    <span class="font-semibold text-yellow-400">Not Registered</span>
+                </div>
+                <p class="text-gray-400 mb-3">No on-chain agent found for this wallet on the ERC-8004 registry.</p>
+                \${data.address ? \`<div class="p-2 rounded bg-[#0f172a] text-xs font-mono text-gray-400 mb-2">Wallet: \${data.address.slice(0,10)}...\${data.address.slice(-6)}</div>\` : ''}
+                <p class="text-xs text-gray-500">To register, use the <code class="text-blue-400">inj-agent</code> CLI. See the Agent tab for instructions.</p>
+            \`;
+        }
+    } catch (e) {
+        document.getElementById('agent-status-content').innerHTML = '<p class="text-red-400 text-sm">Failed to check agent status.</p>';
+    }
+}
+
+// ─── Init everything ────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', async () => {
+    initChartAssets();
+    await refreshPrices();
+    await loadOverviewChart();
+    await loadChart();
+    await loadMiniCharts();
+    await loadStrategies();
+    await loadAgentStatus();
+    setInterval(refreshPrices, 30000);
+});
+</script>
 </body>
 </html>

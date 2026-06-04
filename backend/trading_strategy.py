@@ -1,281 +1,421 @@
+"""Trading strategy engine with live prices (CoinGecko) + backtesting."""
 import os
-import asyncio
 import json
-from datetime import datetime
+import time
+import hashlib
+from datetime import datetime, timedelta
 import requests
 
-# Try to import Injective SDK for potential future use
-try:
-    from injective_py.exchange.exchange import InjectiveExchange
-    from injective_py.exchange.trader import InjectiveTrader
-    from injective_py.factory import InjectiveClientFactory
-    from injective_py.network import Network
-    from eth_account import Account
-    INJECTIVE_AVAILABLE = True
-except ImportError:
-    INJECTIVE_AVAILABLE = False
-    # Mock classes for deployment fallback
-    class InjectiveExchange:
-        def __init__(self, *args, **kwargs):
-            pass
-        async def get_account(self):
-            return {"balances": [{"denom": "INJ", "amount": "100"}, {"denom": "USDT", "amount": "500"}]}
-        async def get_spot_orderbook(self, symbol, limit=10):
-            return {"bids": [["8.50", "10"]], "asks": [["8.52", "10"]]}
-    class InjectiveTrader:
-        def __init__(self, *args, **kwargs):
-            pass
-    class InjectiveClientFactory:
-        def create_chain_client(self, network=None):
-            return MockChainClient()
-    class MockChainClient:
-        pass
-    class Network:
-        @staticmethod
-        def testnet():
-            return "testnet"
-        @staticmethod
-        def mainnet():
-            return "mainnet"
+# ─── Asset definitions ────────────────────────────────────────────────
+ASSETS = {
+    "INJ": {
+        "name": "Injective",
+        "coingecko_id": "injective-protocol",
+        "decimals": 18,
+        "type": "L1 Token",
+    },
+    "USDT": {
+        "name": "Tether",
+        "coingecko_id": "tether",
+        "decimals": 6,
+        "type": "Stablecoin",
+    },
+    "stINJ": {
+        "name": "Staked Injective",
+        "coingecko_id": "staked-injective",
+        "decimals": 18,
+        "type": "Liquid Staking",
+    },
+    "BTC": {
+        "name": "Bitcoin",
+        "coingecko_id": "bitcoin",
+        "decimals": 8,
+        "type": "L1 Token",
+    },
+    "ETH": {
+        "name": "Ethereum",
+        "coingecko_id": "ethereum",
+        "decimals": 18,
+        "type": "L1 Token",
+    },
+    "ATOM": {
+        "name": "Cosmos",
+        "coingecko_id": "cosmos",
+        "decimals": 6,
+        "type": "L1 Token",
+    },
+}
 
-class LiveTradingStrategy:
-    def __init__(self, private_key=None, network="mainnet"):
-        self.exchange = None
-        self.trader = None
-        self.account_info = None
-        self.positions = []
-        self.trade_history = []
-        self.is_initialized = False
-        self.network = network
-        self.private_key = private_key
-        self.chain_client = None
-        # Cache for market ID to avoid frequent API calls
-        self.market_id_cache = None
-        self.market_id_cache_time = 0
-        self.CACHE_TTL = 300  # 5 minutes
-        
-        # Your provided private key
-        if not self.private_key:
-            self.private_key = os.environ.get("INJECTIVE_PRIVATE_KEY", "")
-    
-    async def initialize(self):
-        """Initialize the Injective client and exchange"""
-        try:
-            # Load environment variables
-            from dotenv import load_dotenv
-            load_dotenv()
-            
-            if INJECTIVE_AVAILABLE and self.private_key:
-                # Initialize Injective client
-                self.factory = InjectiveClientFactory()
-                # Use mainnet as requested
-                network = Network.mainnet() 
-                self.chain_client = self.factory.create_chain_client(network)
-                
-                # Initialize exchange and trader with private key
-                self.exchange = InjectiveExchange(self.chain_client)
-                self.trader = InjectiveTrader(self.chain_client)
-                
-                # Set the private key for signing transactions
-                # Note: Actual implementation may vary based on injective-py version
-                # This is a placeholder - adjust based on SDK documentation
-                if hasattr(self.trader, 'set_private_key'):
-                    self.trader.set_private_key(self.private_key)
-                elif hasattr(self.trader, 'private_key'):
-                    self.trader.private_key = self.private_key
-                
-                # Get account info
-                self.account_info = await self.exchange.get_account()
-                print(f"✅ Injective trading strategy initialized on {network}")
-                print(f"📍 Account: {self.account_info.get('address', 'unknown')}")
-            else:
-                # Mock initialization for deployment
-                self.account_info = {"balances": [{"denom": "INJ", "amount": "100"}, {"denom": "USDT", "amount": "500"}]}
-                print("⚠️  Using mock Injective client for deployment")
-            
-            self.is_initialized = True
-            return True
-        except Exception as e:
-            print(f"❌ Failed to initialize trading strategy: {e}")
-            # Fallback to mock data
-            self.account_info = {"balances": [{"denom": "INJ", "amount": "100"}, {"denom": "USDT", "amount": "500"}]}
-            self.is_initialized = True
-            return True
-    
-    async def get_market_data(self, symbol="INJ/USDT"):
-        """Get real market data for a symbol using Injective REST API"""
-        try:
-            if not self.is_initialized:
-                await self.initialize()
-                
-            # Try to get real market data from Injective API
-            try:
-                # Map symbol to market ID (we need to fetch this)
-                market_id = await self._get_market_id(symbol)
-                if market_id:
-                    # Fetch orderbook
-                    url = f"https://api.injective.network/exchange/v1/spot/orderbook?market_id={market_id}"
-                    response = requests.get(url, timeout=10)
-                    if response.status_code == 200:
-                        data = response.json()
-                        # Extract best bid and ask
-                        bids = data.get('bids', [])
-                        asks = data.get('asks', [])
-                        bid = float(bids[0][0]) if bids and len(bids[0]) > 0 else 0.0
-                        ask = float(asks[0][0]) if asks and len(asks[0]) > 0 else 0.0
-                        
-                        return {
-                            "symbol": symbol,
-                            "bid": bid,
-                            "ask": ask,
-                            "timestamp": datetime.now().isoformat(),
-                            "orderbook": {
-                                "bids": bids,
-                                "asks": asks
-                            }
-                        }
-                # If we couldn't get real data, fall back to mock
-            except Exception as e:
-                print(f"Error fetching real market data: {e}")
-                # Fall through to mock data
-            
-            # Return mock market data
-            return {
-                "symbol": symbol,
-                "bid": 8.50,
-                "ask": 8.52,
-                "timestamp": datetime.now().isoformat(),
-                "orderbook": {"bids": [["8.50", "10"]], "asks": [["8.52", "10"]]}
-            }
-        except Exception as e:
-            print(f"Error getting market data: {e}")
-            # Return mock data on error
-            return {
-                "symbol": symbol,
-                "bid": 8.50,
-                "ask": 8.52,
-                "timestamp": datetime.now().isoformat(),
-                "orderbook": {"bids": [["8.50", "10"]], "asks": [["8.52", "10"]]}
-            }
-    
-    async def _get_market_id(self, symbol):
-        """Get market ID for a symbol from Injective API, with caching"""
-        current_time = datetime.now().timestamp()
-        # Check cache
-        if self.market_id_cache and (current_time - self.market_id_cache_time) < self.CACHE_TTL:
-            return self.market_id_cache
-        
-        try:
-            # Fetch all spots markets
-            url = "https://api.injective.network/exchange/v1/spot/markets"
-            response = requests.get(url, timeout=10)
-            if response.status_code == 200:
-                data = response.json()
-                markets = data.get('markets', [])
-                for market in markets:
-                    if market.get('ticker') == symbol:
-                        market_id = market.get('market_id')
-                        self.market_id_cache = market_id
-                        self.market_id_cache_time = current_time
-                        return market_id
-            # If not found, try to search by base/quote
-            # For INJ/USDT, we can also try to derive from known market ID
-            # Known market ID for INJ/USDT on mainnet is "0x4ca0f92fc28be0c9761326016b5a1a217830ee48"
-            if symbol == "INJ/USDT":
-                market_id = "0x4ca0f92fc28be0c9761326016b5a1a217830ee48"
-                self.market_id_cache = market_id
-                self.market_id_cache_time = current_time
-                return market_id
-        except Exception as e:
-            print(f"Error fetching market ID: {e}")
-        
+CACHE_DIR = os.path.join(os.path.dirname(__file__), "..", "cache")
+os.makedirs(CACHE_DIR, exist_ok=True)
+
+
+def _cache_path(key: str) -> str:
+    h = hashlib.md5(key.encode()).hexdigest()
+    return os.path.join(CACHE_DIR, f"{h}.json")
+
+
+def _cache_get(key: str, ttl_seconds: int = 60) -> dict | None:
+    path = _cache_path(key)
+    if not os.path.exists(path):
         return None
-    
-    async def execute_trade(self, symbol, side, amount, price=None, order_type="market"):
-        """Execute a trade on Injective"""
-        try:
-            if not self.is_initialized:
-                await self.initialize()
-                
-            trade = {
-                "id": len(self.trade_history) + 1,
-                "symbol": symbol,
-                "side": side,
-                "amount": amount,
-                "price": price or 0,
-                "order_type": order_type,
-                "timestamp": datetime.now().isoformat(),
-                "status": "filled"  # In real case, would check transaction status
-            }
-            
-            self.trade_history.append(trade)
-            
-            # Also add to positions if it's a new position
-            if side.lower() == "buy":
-                self.positions.append({
-                    "symbol": symbol,
-                    "side": "long",
-                    "amount": amount,
-                    "entry_price": price,
-                    "timestamp": datetime.now().isoformat()
-                })
-            
-            print(f"✅ Executed {side} {amount} {symbol} at {price}")
-            return trade
-        except Exception as e:
-            print(f"Error executing trade: {e}")
+    try:
+        with open(path) as f:
+            data = json.load(f)
+        if time.time() - data.get("_ts", 0) > ttl_seconds:
             return None
-    
-    async def get_account_balance(self):
-        """Get account balance"""
-        try:
-            if not self.is_initialized:
-                await self.initialize()
-                
-            if INJECTIVE_AVAILABLE and self.exchange:
-                # Get account info which includes balances
-                account = await self.exchange.get_account()
-                return account
-            else:
-                # Return mock account info
-                return {"balances": [{"denom": "INJ", "amount": "100"}, {"denom": "USDT", "amount": "500"}]}
-        except Exception as e:
-            print(f"Error getting account balance: {e}")
-            return {"balances": [{"denom": "INJ", "amount": "100"}, {"denom": "USDT", "amount": "500"}]}
-    
-    def get_strategy_performance(self):
-        """Calculate strategy performance metrics"""
-        if not self.trade_history:
-            return {
-                "total_trades": 0,
-                "winning_trades": 0,
-                "win_rate": 0,
-                "total_pnl": 0,
-                "sharpe_ratio": 0
-            }
-        
-        # Calculate real P&L from trade history (simplified)
-        # In a real implementation, you'd need to track entry/exit prices and amounts
-        # For now, we'll use a simple heuristic: assume each trade has some P&L
-        winning_trades = len([t for t in self.trade_history if t.get('pnl', 0) > 0])
-        total_trades = len(self.trade_history)
-        
-        # Calculate total P&L from trades that have pnl field
-        total_pnl = sum(t.get('pnl', 0) for t in self.trade_history)
-        
-        # If no pnl data yet, estimate based on trade count (for demonstration)
-        if total_pnl == 0 and total_trades > 0:
-            total_pnl = 124.50 * (total_trades / 2.0)  # Scale with trade count
-        
-        win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0
-        
-        return {
-            "total_trades": total_trades,
-            "winning_trades": winning_trades,
-            "win_rate": win_rate,
-            "total_pnl": total_pnl,
-            "sharpe_ratio": 1.85 if winning_trades > 0 else 0
-        }
+        return data.get("payload")
+    except Exception:
+        return None
 
-# Global strategy instance - uses your private key and mainnet
-strategy = LiveTradingStrategy()
+
+def _cache_set(key: str, payload: dict):
+    path = _cache_path(key)
+    try:
+        with open(path, "w") as f:
+            json.dump({"_ts": time.time(), "payload": payload}, f)
+    except Exception:
+        pass
+
+
+# ─── Live data helpers ────────────────────────────────────────────────
+
+def fetch_price(asset_id: str) -> dict | None:
+    """Fetch current price + 24h change from CoinGecko."""
+    info = ASSETS.get(asset_id)
+    if not info:
+        return None
+    cg_id = info["coingecko_id"]
+    cache_key = f"price:{cg_id}"
+    cached = _cache_get(cache_key, ttl_seconds=30)
+    if cached:
+        return cached
+    try:
+        url = (
+            f"https://api.coingecko.com/api/v3/simple/price"
+            f"?ids={cg_id}&vs_currencies=usd&include_24hr_change=true"
+        )
+        r = requests.get(url, timeout=10)
+        if r.status_code != 200:
+            return None
+        data = r.json().get(cg_id, {})
+        result = {
+            "asset": asset_id,
+            "usd": data.get("usd"),
+            "change_24h": data.get("usd_24h_change"),
+            "updated_at": datetime.utcnow().isoformat(),
+        }
+        _cache_set(cache_key, result)
+        return result
+    except Exception:
+        return None
+
+
+def fetch_historical(
+    asset_id: str, days: int = 7
+) -> list[dict]:
+    """Fetch OHLCV candles from CoinGecko."""
+    info = ASSETS.get(asset_id)
+    if not info:
+        return []
+    cg_id = info["coingecko_id"]
+    cache_key = f"history:{cg_id}:{days}"
+    cached = _cache_get(cache_key, ttl_seconds=300)
+    if cached:
+        return cached
+    try:
+        url = (
+            f"https://api.coingecko.com/api/v3/coins/{cg_id}/ohlc"
+            f"?vs_currency=usd&days={days}"
+        )
+        r = requests.get(url, timeout=15)
+        if r.status_code != 200:
+            return []
+        raw = r.json()  # [[timestamp_ms, open, high, low, close], ...]
+        candles = []
+        for c in raw:
+            candles.append({
+                "timestamp": datetime.fromtimestamp(c[0] / 1000).isoformat(),
+                "open": c[1],
+                "high": c[2],
+                "low": c[3],
+                "close": c[4],
+            })
+        _cache_set(cache_key, candles)
+        return candles
+    except Exception:
+        return []
+
+
+# ─── Backtesting engine ──────────────────────────────────────────────
+
+BACKTEST_STRATEGIES = {
+    "sma_crossover": {
+        "name": "SMA Crossover",
+        "params": {"fast_period": 10, "slow_period": 30},
+        "description": "Buy when fast SMA crosses above slow SMA. Sell when it crosses below.",
+    },
+    "rsi_mean_reversion": {
+        "name": "RSI Mean Reversion",
+        "params": {"rsi_period": 14, "oversold": 30, "overbought": 70},
+        "description": "Buy when RSI is oversold, sell when overbought.",
+    },
+    "macd": {
+        "name": "MACD",
+        "params": {"fast": 12, "slow": 26, "signal": 9},
+        "description": "Buy when MACD crosses above signal line, sell when below.",
+    },
+    "bollinger_breakout": {
+        "name": "Bollinger Breakout",
+        "params": {"period": 20, "std_dev": 2},
+        "description": "Buy when price touches lower band, sell at upper band.",
+    },
+}
+
+
+def _sma(data: list[float], period: int) -> list[float | None]:
+    if len(data) < period:
+        return [None] * len(data)
+    result = [None] * (period - 1)
+    for i in range(period - 1, len(data)):
+        result.append(sum(data[i - period + 1 : i + 1]) / period)
+    return result
+
+
+def _rsi(data: list[float], period: int) -> list[float | None]:
+    if len(data) < period + 1:
+        return [None] * len(data)
+    result = [None] * period
+    for i in range(period, len(data)):
+        gains = losses = 0
+        for j in range(i - period + 1, i + 1):
+            diff = data[j] - data[j - 1]
+            if diff >= 0:
+                gains += diff
+            else:
+                losses -= diff
+        avg_gain = gains / period
+        avg_loss = losses / period
+        if avg_loss == 0:
+            result.append(100)
+        else:
+            rs = avg_gain / avg_loss
+            result.append(100 - (100 / (1 + rs)))
+    return result
+
+
+def _ema(data: list[float], period: int) -> list[float | None]:
+    if len(data) < period:
+        return [None] * len(data)
+    multiplier = 2 / (period + 1)
+    result = [None] * (period - 1)
+    ema = sum(data[:period]) / period
+    result.append(ema)
+    for i in range(period, len(data)):
+        ema = (data[i] - ema) * multiplier + ema
+        result.append(ema)
+    return result
+
+
+def _macd(data: list[float], fast: int, slow: int, signal: int) -> tuple:
+    ema_fast = _ema(data, fast)
+    ema_slow = _ema(data, slow)
+    macd_line = []
+    for i in range(len(data)):
+        if ema_fast[i] is not None and ema_slow[i] is not None:
+            macd_line.append(ema_fast[i] - ema_slow[i])
+        else:
+            macd_line.append(None)
+    signal_line = _ema([x for x in macd_line if x is not None], signal)
+    # Pad signal_line to match length
+    signal_padded = [None] * (len(macd_line) - len(signal_line)) + signal_line
+    histogram = []
+    for i in range(len(data)):
+        if macd_line[i] is not None and signal_padded[i] is not None:
+            histogram.append(macd_line[i] - signal_padded[i])
+        else:
+            histogram.append(None)
+    return macd_line, signal_padded, histogram
+
+
+def run_backtest(
+    asset_id: str,
+    strategy_id: str,
+    days: int = 30,
+    params: dict | None = None,
+    capital: float = 1000.0,
+) -> dict:
+    """Run a full backtest and return performance metrics."""
+    candles = fetch_historical(asset_id, days)
+    if not candles:
+        return {"error": f"No historical data for {asset_id}"}
+
+    closes = [c["close"] for c in candles]
+    timestamps = [c["timestamp"] for c in candles]
+    strat = BACKTEST_STRATEGIES.get(strategy_id)
+    if not strat:
+        return {"error": f"Unknown strategy: {strategy_id}"}
+
+    merged_params = {**strat["params"], **(params or {})}
+
+    # Generate signals
+    signals = [0] * len(closes)  # 1=buy, -1=sell, 0=hold
+
+    if strategy_id == "sma_crossover":
+        fast_period = int(merged_params.get("fast_period", 10))
+        slow_period = int(merged_params.get("slow_period", 30))
+        fast_sma = _sma(closes, fast_period)
+        slow_sma = _sma(closes, slow_period)
+        for i in range(1, len(closes)):
+            if fast_sma[i] is not None and slow_sma[i] is not None:
+                if fast_sma[i - 1] is not None and slow_sma[i - 1] is not None:
+                    if fast_sma[i - 1] <= slow_sma[i - 1] and fast_sma[i] > slow_sma[i]:
+                        signals[i] = 1  # Buy
+                    elif fast_sma[i - 1] >= slow_sma[i - 1] and fast_sma[i] < slow_sma[i]:
+                        signals[i] = -1  # Sell
+
+    elif strategy_id == "rsi_mean_reversion":
+        period = int(merged_params.get("rsi_period", 14))
+        oversold = float(merged_params.get("oversold", 30))
+        overbought = float(merged_params.get("overbought", 70))
+        rsi_values = _rsi(closes, period)
+        for i in range(1, len(closes)):
+            if rsi_values[i] is not None:
+                if rsi_values[i - 1] is not None:
+                    if rsi_values[i - 1] <= oversold and rsi_values[i] > oversold:
+                        signals[i] = 1
+                    elif rsi_values[i - 1] >= overbought and rsi_values[i] < overbought:
+                        signals[i] = -1
+
+    elif strategy_id == "macd":
+        fast = int(merged_params.get("fast", 12))
+        slow = int(merged_params.get("slow", 26))
+        signal = int(merged_params.get("signal", 9))
+        macd_line, signal_line, histogram = _macd(closes, fast, slow, signal)
+        for i in range(1, len(closes)):
+            if macd_line[i] is not None and signal_line[i] is not None:
+                if macd_line[i - 1] is not None and signal_line[i - 1] is not None:
+                    if macd_line[i - 1] <= signal_line[i - 1] and macd_line[i] > signal_line[i]:
+                        signals[i] = 1
+                    elif macd_line[i - 1] >= signal_line[i - 1] and macd_line[i] < signal_line[i]:
+                        signals[i] = -1
+
+    elif strategy_id == "bollinger_breakout":
+        period = int(merged_params.get("period", 20))
+        std_mult = float(merged_params.get("std_dev", 2))
+        sma = _sma(closes, period)
+        upper = [None] * len(closes)
+        lower = [None] * len(closes)
+        for i in range(period - 1, len(closes)):
+            if sma[i] is not None:
+                window = closes[i - period + 1 : i + 1]
+                variance = sum((x - sma[i]) ** 2 for x in window) / period
+                std = variance ** 0.5
+                upper[i] = sma[i] + std_mult * std
+                lower[i] = sma[i] - std_mult * std
+        for i in range(1, len(closes)):
+            if lower[i] is not None and upper[i] is not None:
+                if (lower[i-1] is None or closes[i-1] > lower[i-1]) and closes[i] <= lower[i]:
+                    signals[i] = 1
+                elif (upper[i-1] is None or closes[i-1] < upper[i-1]) and closes[i] >= upper[i]:
+                    signals[i] = -1
+
+    # Simulate trading
+    cash = capital
+    position = 0.0
+    trades = []
+    for i in range(len(closes)):
+        price = closes[i]
+        if signals[i] == 1 and cash > 0:  # Buy
+            position = cash / price
+            trades.append({
+                "timestamp": timestamps[i],
+                "type": "buy",
+                "price": price,
+                "size": cash,
+                "units": position,
+            })
+            cash = 0
+        elif signals[i] == -1 and position > 0:  # Sell
+            cash = position * price
+            trades.append({
+                "timestamp": timestamps[i],
+                "type": "sell",
+                "price": price,
+                "size": cash,
+                "units": position,
+            })
+            position = 0
+
+    # Final value
+    final_value = cash + (position * closes[-1] if position > 0 else 0)
+    total_return = ((final_value - capital) / capital) * 100
+
+    # Calculate equity curve
+    equity_curve = []
+    running_cash = capital
+    running_position = 0.0
+    for i in range(len(closes)):
+        if signals[i] == 1 and running_cash > 0:
+            running_position = running_cash / closes[i]
+            running_cash = 0
+        elif signals[i] == -1 and running_position > 0:
+            running_cash = running_position * closes[i]
+            running_position = 0
+        equity = running_cash + (running_position * closes[i] if running_position > 0 else 0)
+        equity_curve.append({
+            "timestamp": timestamps[i],
+            "equity": round(equity, 2),
+            "signal": signals[i],
+        })
+
+    # Win rate
+    winning_trades = 0
+    closed_trades = []
+    for i in range(0, len(trades) - 1, 2):
+        if i + 1 < len(trades):
+            buy_t = trades[i]
+            sell_t = trades[i + 1]
+            pnl_pct = ((sell_t["price"] - buy_t["price"]) / buy_t["price"]) * 100
+            closed_trades.append({
+                "buy_time": buy_t["timestamp"],
+                "sell_time": sell_t["timestamp"],
+                "buy_price": buy_t["price"],
+                "sell_price": sell_t["price"],
+                "pnl_pct": round(pnl_pct, 2),
+            })
+            if pnl_pct > 0:
+                winning_trades += 1
+
+    # Max drawdown
+    peak = capital
+    max_dd = 0
+    for point in equity_curve:
+        if point["equity"] > peak:
+            peak = point["equity"]
+        dd = ((peak - point["equity"]) / peak) * 100
+        if dd > max_dd:
+            max_dd = dd
+
+    return {
+        "asset": asset_id,
+        "strategy": strategy_id,
+        "strategy_name": strat["name"],
+        "params": merged_params,
+        "days": days,
+        "capital": capital,
+        "final_value": round(final_value, 2),
+        "total_return_pct": round(total_return, 2),
+        "total_trades": len(trades),
+        "winning_trades": winning_trades,
+        "win_rate": round((winning_trades / max(len(closed_trades), 1)) * 100, 1),
+        "max_drawdown_pct": round(max_dd, 2),
+        "trades": closed_trades[-20:],  # last 20 closed trades
+        "equity_curve": equity_curve[:: max(1, len(equity_curve) // 200)],  # downsampled
+        "signals": [
+            {"timestamp": timestamps[i], "signal": signals[i], "price": closes[i]}
+            for i in range(len(closes))
+            if signals[i] != 0
+        ],
+        "generated_at": datetime.utcnow().isoformat(),
+    }
