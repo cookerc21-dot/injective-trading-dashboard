@@ -2,7 +2,7 @@ from flask import Flask, render_template, jsonify
 import json
 import os
 import asyncio
-from trading_strategy import strategy
+from backend.trading_strategy import strategy
 
 app = Flask(__name__, template_folder='../frontend/templates', static_folder='../frontend/static')
 
