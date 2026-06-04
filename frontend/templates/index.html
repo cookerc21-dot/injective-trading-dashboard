@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Injective Trading Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100">
+    <div class="container mx-auto px-4 py-8">
+        <h1 class="text-3xl font-bold text-center mb-6 text-gray-800">Injective Trading Dashboard</h1>
+        
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+            <!-- Live Trades -->
+            <div class="bg-white rounded-lg shadow p-6">
+                <h2 class="text-xl font-semibold mb-4 text-gray-700">Live Trades</h2>
+                <div id="trades-list" class="space-y-4">
+                    <!-- Trades will be populated here -->
+                </div>
+            </div>
+            
+            <!-- Strategy Parameters -->
+            <div class="bg-white rounded-lg shadow p-6">
+                <h2 class="text-xl font-semibold mb-4 text-gray-700">Strategy Parameters</h2>
+                <div id="parameters-list" class="space-y-2">
+                    <!-- Parameters will be populated here -->
+                </div>
+            </div>
+            
+            <!-- Performance Metrics -->
+            <div class="bg-white rounded-lg shadow p-6">
+                <h2 class="text-xl font-semibold mb-4 text-gray-700">Performance Metrics</h2>
+                <div id="metrics-list" class="space-y-2">
+                    <!-- Metrics will be populated here -->
+                </div>
+            </div>
+        </div>
+        
+        <!-- Charts Section -->
+        <div class="bg-white rounded-lg shadow p-6">
+            <h2 class="text-xl font-semibold mb-4 text-gray-700">Live Chart</h2>
+            <div id="chart-container" class="h-96 bg-gray-50 rounded-lg">
+                <!-- Chart will be loaded here -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Fetch data from API and update the dashboard
+        async function updateDashboard() {
+            try {
+                const response = await fetch('/api/data');
+                const data = await response.json();
+                
+                // Update trades
+                const tradesList = document.getElementById('trades-list');
+                tradesList.innerHTML = '';
+                data.trades.forEach(trade => {
+                    const tradeEl = document.createElement('div');
+                    tradeEl.className = 'flex justify-between items-center p-3 border-b';
+                    tradeEl.innerHTML = `
+                        <div>
+                            <span class="font-medium">${trade.symbol}</span><br>
+                            <span class="text-sm text-gray-500">${trade.side.toUpperCase()}</span>
+                        </div>
+                        <div class="text-right">
+                            <span>${trade.amount} @ $${trade.price}</span><br>
+                            <span class="text-xs text-gray-400">${new Date(trade.timestamp).toLocaleTimeString()}</span>
+                        </div>
+                    `;
+                    tradesList.appendChild(tradeEl);
+                });
+                
+                // Update parameters
+                const paramsList = document.getElementById('parameters-list');
+                paramsList.innerHTML = '';
+                Object.entries(data.parameters).forEach(([key, value]) => {
+                    const paramEl = document.createElement('div');
+                    paramEl.className = 'flex justify-between';
+                    paramEl.innerHTML = `
+                        <span>${key.replace('_', ' ').toUpperCase()}</span>
+                        <span>${typeof value === 'number' ? value.toFixed(4) : value}</span>
+                    `;
+                    paramsList.appendChild(paramEl);
+                });
+                
+                // Update metrics (mock data for now)
+                const metricsList = document.getElementById('metrics-list');
+                metricsList.innerHTML = '';
+                const metrics = [
+                    { label: 'Total P&L', value: '+$124.50', change: '+2.3%' },
+                    { label: 'Win Rate', value: '68%', change: '+5%' },
+                    { label: 'Sharpe Ratio', value: '1.85', change: '+0.2' }
+                ];
+                metrics.forEach(metric => {
+                    const metricEl = document.createElement('div');
+                    metricEl.className = 'flex justify-between items-center p-2 border';
+                    metricEl.innerHTML = `
+                        <span>${metric.label}</span>
+                        <div class="text-right space-y-1">
+                            <span class="font-semibold">${metric.value}</span>
+                            <span class="text-xs ${metric.change.startsWith('+') ? 'text-green-500' : 'text-red-500'}">${metric.change}</span>
+                        </div>
+                    `;
+                    metricsList.appendChild(metricEl);
+                });
+                
+            } catch (error) {
+                console.error('Error fetching data:', error);
+            }
+        }
+        
+        // Update dashboard every 5 seconds
+        setInterval(updateDashboard, 5000);
+        
+        // Initial load
+        updateDashboard();
+    </script>
+</body>
+</html>
