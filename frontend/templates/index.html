@@ -5,116 +5,262 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Injective Trading Dashboard</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <style>
+        .stat-card { transition: transform 0.2s; }
+        .stat-card:hover { transform: translateY(-2px); }
+        .spinner { animation: spin 1s linear infinite; }
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+    </style>
 </head>
-<body class="bg-gray-100">
-    <div class="container mx-auto px-4 py-8">
-        <h1 class="text-3xl font-bold text-center mb-6 text-gray-800">Injective Trading Dashboard</h1>
-        
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
-            <!-- Live Trades -->
-            <div class="bg-white rounded-lg shadow p-6">
-                <h2 class="text-xl font-semibold mb-4 text-gray-700">Live Trades</h2>
-                <div id="trades-list" class="space-y-4">
-                    <!-- Trades will be populated here -->
+<body class="bg-slate-900 text-white">
+    <div class="container mx-auto px-4 py-6">
+        <!-- Header -->
+        <div class="flex justify-between items-center mb-8">
+            <div>
+                <h1 class="text-3xl font-bold">Injective Trading Dashboard</h1>
+                <p class="text-slate-400 text-sm">Live trading data from Injective Chain</p>
+            </div>
+            <div class="flex gap-2">
+                <span class="px-3 py-1 bg-green-900 text-green-300 rounded-full text-xs font-medium" id="status-badge">● LIVE</span>
+                <span class="px-3 py-1 bg-slate-700 text-slate-300 rounded-full text-xs font-mono" id="update-time">--:--:--</span>
+            </div>
+        </div>
+
+        <!-- Stats Row -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+            <div class="stat-card bg-slate-800 rounded-xl p-4">
+                <div class="text-slate-400 text-xs uppercase tracking-wider">INJ Price</div>
+                <div class="text-2xl font-bold mt-1" id="inj-price">--</div>
+                <div class="text-xs text-slate-500" id="inj-spread">spread: --</div>
+            </div>
+            <div class="stat-card bg-slate-800 rounded-xl p-4">
+                <div class="text-slate-400 text-xs uppercase tracking-wider">Total P&L</div>
+                <div class="text-2xl font-bold mt-1" id="total-pnl">--</div>
+                <div class="text-xs text-slate-500">all time</div>
+            </div>
+            <div class="stat-card bg-slate-800 rounded-xl p-4">
+                <div class="text-slate-400 text-xs uppercase tracking-wider">Win Rate</div>
+                <div class="text-2xl font-bold mt-1" id="win-rate">--</div>
+                <div class="text-xs text-slate-500">of total trades</div>
+            </div>
+            <div class="stat-card bg-slate-800 rounded-xl p-4">
+                <div class="text-slate-400 text-xs uppercase tracking-wider">Total Trades</div>
+                <div class="text-2xl font-bold mt-1" id="total-trades">--</div>
+                <div class="text-xs text-slate-500">executed</div>
+            </div>
+        </div>
+
+        <!-- Charts Row -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+            <div class="bg-slate-800 rounded-xl p-4">
+                <h2 class="text-lg font-semibold mb-4">Price Chart</h2>
+                <div class="relative" style="height: 300px;">
+                    <canvas id="priceChart"></canvas>
                 </div>
             </div>
-            
-            <!-- Strategy Parameters -->
-            <div class="bg-white rounded-lg shadow p-6">
-                <h2 class="text-xl font-semibold mb-4 text-gray-700">Strategy Parameters</h2>
-                <div id="parameters-list" class="space-y-2">
-                    <!-- Parameters will be populated here -->
-                </div>
-            </div>
-            
-            <!-- Performance Metrics -->
-            <div class="bg-white rounded-lg shadow p-6">
-                <h2 class="text-xl font-semibold mb-4 text-gray-700">Performance Metrics</h2>
-                <div id="metrics-list" class="space-y-2">
-                    <!-- Metrics will be populated here -->
+            <div class="bg-slate-800 rounded-xl p-4">
+                <h2 class="text-lg font-semibold mb-4">P&L Performance</h2>
+                <div class="relative" style="height: 300px;">
+                    <canvas id="pnlChart"></canvas>
                 </div>
             </div>
         </div>
-        
-        <!-- Charts Section -->
-        <div class="bg-white rounded-lg shadow p-6">
-            <h2 class="text-xl font-semibold mb-4 text-gray-700">Live Chart</h2>
-            <div id="chart-container" class="h-96 bg-gray-50 rounded-lg">
-                <!-- Chart will be loaded here -->
+
+        <!-- Bottom Grid: Trades + Parameters -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div class="bg-slate-800 rounded-xl p-4">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-lg font-semibold">Live Trades</h2>
+                    <span class="text-xs text-slate-400" id="trade-count">0 trades</span>
+                </div>
+                <div id="trades-list" class="space-y-2 max-h-64 overflow-y-auto">
+                    <div class="text-center text-slate-500 py-8">Loading trades...</div>
+                </div>
+            </div>
+            <div class="bg-slate-800 rounded-xl p-4">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-lg font-semibold">Strategy Parameters</h2>
+                </div>
+                <div id="parameters-list" class="space-y-3">
+                    <div class="text-center text-slate-500 py-8">Loading parameters...</div>
+                </div>
             </div>
         </div>
     </div>
 
     <script>
-        // Fetch data from API and update the dashboard
+        let priceChart = null;
+        let pnlChart = null;
+        let priceHistory = [];
+        let pnlHistory = [];
+
+        function initCharts() {
+            const ctx1 = document.getElementById('priceChart').getContext('2d');
+            priceChart = new Chart(ctx1, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'INJ/USDT',
+                        data: [],
+                        borderColor: '#3b82f6',
+                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                        fill: true,
+                        tension: 0.4,
+                        borderWidth: 2,
+                        pointRadius: 2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { labels: { color: '#94a3b8' } } },
+                    scales: {
+                        x: { ticks: { color: '#64748b', maxTicksLimit: 8 }, grid: { color: '#1e293b' } },
+                        y: { ticks: { color: '#64748b' }, grid: { color: '#1e293b' } }
+                    }
+                }
+            });
+
+            const ctx2 = document.getElementById('pnlChart').getContext('2d');
+            pnlChart = new Chart(ctx2, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Cumulative P&L',
+                        data: [],
+                        borderColor: '#22c55e',
+                        backgroundColor: 'rgba(34, 197, 94, 0.1)',
+                        fill: true,
+                        tension: 0.4,
+                        borderWidth: 2,
+                        pointRadius: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { labels: { color: '#94a3b8' } } },
+                    scales: {
+                        x: { ticks: { color: '#64748b', maxTicksLimit: 8 }, grid: { color: '#1e293b' } },
+                        y: { ticks: { color: '#64748b' }, grid: { color: '#1e293b' } }
+                    }
+                }
+            });
+        }
+
+        function addPricePoint(price, bid, ask) {
+            const now = new Date();
+            const time = now.toLocaleTimeString();
+            priceHistory.push({ time, price, bid, ask });
+            if (priceHistory.length > 50) priceHistory.shift();
+
+            if (priceChart) {
+                priceChart.data.labels = priceHistory.map(p => p.time);
+                priceChart.data.datasets[0].data = priceHistory.map(p => p.price);
+                priceChart.update('none');
+            }
+        }
+
+        function addPnlPoint(pnl) {
+            const now = new Date();
+            const time = now.toLocaleTimeString();
+            pnlHistory.push({ time, pnl: parseFloat(pnl) });
+            if (pnlHistory.length > 50) pnlHistory.shift();
+
+            if (pnlChart) {
+                pnlChart.data.labels = pnlHistory.map(p => p.time);
+                pnlChart.data.datasets[0].data = pnlHistory.map(p => p.pnl);
+                const latest = pnlHistory[pnlHistory.length - 1]?.pnl || 0;
+                pnlChart.data.datasets[0].borderColor = latest >= 0 ? '#22c55e' : '#ef4444';
+                pnlChart.update('none');
+            }
+        }
+
         async function updateDashboard() {
             try {
                 const response = await fetch('/api/data');
                 const data = await response.json();
                 
-                // Update trades
-                const tradesList = document.getElementById('trades-list');
-                tradesList.innerHTML = '';
-                data.trades.forEach(trade => {
-                    const tradeEl = document.createElement('div');
-                    tradeEl.className = 'flex justify-between items-center p-3 border-b';
-                    tradeEl.innerHTML = `
-                        <div>
-                            <span class="font-medium">${trade.symbol}</span><br>
-                            <span class="text-sm text-gray-500">${trade.side.toUpperCase()}</span>
-                        </div>
-                        <div class="text-right">
-                            <span>${trade.amount} @ $${trade.price}</span><br>
-                            <span class="text-xs text-gray-400">${new Date(trade.timestamp).toLocaleTimeString()}</span>
-                        </div>
-                    `;
-                    tradesList.appendChild(tradeEl);
-                });
+                const md = data.market_data || {};
+                const perf = data.performance || {};
                 
+                // Update stats
+                document.getElementById('inj-price').textContent = md.bid ? `$${((md.bid + md.ask) / 2).toFixed(2)}` : '--';
+                document.getElementById('inj-spread').textContent = md.bid && md.ask ? `spread: $${(md.ask - md.bid).toFixed(2)}` : '--';
+                document.getElementById('total-pnl').textContent = perf.total_pnl ? `$${perf.total_pnl.toFixed(2)}` : '$0.00';
+                document.getElementById('total-pnl').className = `text-2xl font-bold mt-1 ${(perf.total_pnl || 0) >= 0 ? 'text-green-400' : 'text-red-400'}`;
+                document.getElementById('win-rate').textContent = perf.win_rate ? `${perf.win_rate.toFixed(1)}%` : '--';
+                document.getElementById('total-trades').textContent = perf.total_trades || '0';
+                document.getElementById('update-time').textContent = new Date().toLocaleTimeString();
+                document.getElementById('trade-count').textContent = (data.trades?.length || '0') + ' trades';
+
+                // Add price point to chart (simulate a mid-price)
+                if (md.bid && md.ask) {
+                    addPricePoint((md.bid + md.ask) / 2, md.bid, md.ask);
+                }
+                
+                // Add P&L point
+                if (perf.total_pnl !== undefined) {
+                    addPnlPoint(perf.total_pnl);
+                }
+                
+                // Update trades list
+                const tradesList = document.getElementById('trades-list');
+                if (data.trades && data.trades.length > 0) {
+                    tradesList.innerHTML = '';
+                    data.trades.slice(-10).reverse().forEach(trade => {
+                        const el = document.createElement('div');
+                        el.className = 'flex items-center justify-between p-3 bg-slate-700/50 rounded-lg';
+                        el.innerHTML = `
+                            <div class="flex items-center gap-3">
+                                <span class="w-2 h-2 rounded-full ${trade.side === 'buy' ? 'bg-green-400' : 'bg-red-400'}"></span>
+                                <div>
+                                    <div class="text-sm font-medium">${trade.symbol}</div>
+                                    <div class="text-xs text-slate-400">${trade.side.toUpperCase()} · ${trade.amount}</div>
+                                </div>
+                            </div>
+                            <div class="text-right">
+                                <div class="text-sm">$${trade.price}</div>
+                                <div class="text-xs text-slate-400">${new Date(trade.timestamp).toLocaleTimeString()}</div>
+                            </div>
+                        `;
+                        tradesList.appendChild(el);
+                    });
+                } else {
+                    tradesList.innerHTML = '<div class="text-center text-slate-500 py-4">No trades yet</div>';
+                }
+
                 // Update parameters
                 const paramsList = document.getElementById('parameters-list');
                 paramsList.innerHTML = '';
-                Object.entries(data.parameters).forEach(([key, value]) => {
-                    const paramEl = document.createElement('div');
-                    paramEl.className = 'flex justify-between';
-                    paramEl.innerHTML = `
-                        <span>${key.replace('_', ' ').toUpperCase()}</span>
-                        <span>${typeof value === 'number' ? value.toFixed(4) : value}</span>
-                    `;
-                    paramsList.appendChild(paramEl);
-                });
-                
-                // Update metrics (mock data for now)
-                const metricsList = document.getElementById('metrics-list');
-                metricsList.innerHTML = '';
-                const metrics = [
-                    { label: 'Total P&L', value: '+$124.50', change: '+2.3%' },
-                    { label: 'Win Rate', value: '68%', change: '+5%' },
-                    { label: 'Sharpe Ratio', value: '1.85', change: '+0.2' }
-                ];
-                metrics.forEach(metric => {
-                    const metricEl = document.createElement('div');
-                    metricEl.className = 'flex justify-between items-center p-2 border';
-                    metricEl.innerHTML = `
-                        <span>${metric.label}</span>
-                        <div class="text-right space-y-1">
-                            <span class="font-semibold">${metric.value}</span>
-                            <span class="text-xs ${metric.change.startsWith('+') ? 'text-green-500' : 'text-red-500'}">${metric.change}</span>
-                        </div>
-                    `;
-                    metricsList.appendChild(metricEl);
-                });
-                
+                if (data.parameters) {
+                    Object.entries(data.parameters).forEach(([key, value]) => {
+                        const el = document.createElement('div');
+                        el.className = 'flex justify-between items-center p-3 bg-slate-700/50 rounded-lg';
+                        const valDisplay = typeof value === 'number' ? (value < 1 ? (value * 100).toFixed(1) + '%' : value.toFixed(2)) : value;
+                        el.innerHTML = `
+                            <span class="text-sm text-slate-300">${key.replace(/_/g, ' ').toUpperCase()}</span>
+                            <span class="text-sm font-mono font-medium">${valDisplay}</span>
+                        `;
+                        paramsList.appendChild(el);
+                    });
+                } else {
+                    paramsList.innerHTML = '<div class="text-center text-slate-500 py-4">No parameters</div>';
+                }
             } catch (error) {
-                console.error('Error fetching data:', error);
+                console.error('Error:', error);
             }
         }
-        
-        // Update dashboard every 5 seconds
-        setInterval(updateDashboard, 5000);
-        
-        // Initial load
-        updateDashboard();
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            initCharts();
+            updateDashboard();
+            setInterval(updateDashboard, 5000);
+        });
     </script>
 </body>
 </html>
